@@ -16,7 +16,7 @@ const uri = process.env.DATABASE_URL;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
-    strict: false, // <-- strict false করে দেওয়া হয়েছে
+    strict: false,
     deprecationErrors: true,
   },
 });
@@ -49,7 +49,7 @@ async function run() {
         const pets = await petsCollection.find(query).toArray();
         res.send(pets);
       } catch (error) {
-        console.error("Error in GET /pets:", error); // <-- Terminal এ আসল এরর দেখাবে
+        console.error("Error in GET /pets:", error);
         res.status(500).send({ message: "Failed to fetch pets", error: error.message });
       }
     });
@@ -60,10 +60,11 @@ async function run() {
         const id = req.params.id;
         const query = { _id: new ObjectId(id) };
         const pet = await petsCollection.findOne(query);
+        if (!pet) return res.status(404).send({ message: "Pet not found" });
         res.send(pet);
       } catch (error) {
         console.error("Error in GET /pets/:id:", error);
-        res.status(404).send({ message: "Pet not found" });
+        res.status(400).send({ message: "Invalid Pet ID format" });
       }
     });
 
@@ -75,7 +76,7 @@ async function run() {
         const result = await petsCollection.insertOne(newPet);
         res.send(result);
       } catch (error) {
-        console.error("Error in POST /pets:", error); // <-- Terminal এ আসল এরর দেখাবে
+        console.error("Error in POST /pets:", error);
         res.status(500).send({ message: "Failed to add pet", error: error.message });
       }
     });
@@ -105,7 +106,7 @@ async function run() {
         const requestData = req.body;
         requestData.status = "Pending";
         requestData.createdAt = new Date();
-        
+
         const result = await requestsCollection.insertOne(requestData);
         res.send(result);
       } catch (error) {
@@ -114,7 +115,7 @@ async function run() {
       }
     });
 
-    // Get Adoption Requests for Logged-in User
+    // Get Adoption Requests Submitted BY Logged-in User (Adopter View)
     app.get("/my-requests", async (req, res) => {
       try {
         const email = req.query.email;
@@ -126,6 +127,48 @@ async function run() {
       } catch (error) {
         console.error("Error in GET /my-requests:", error);
         res.status(500).send({ message: "Failed to fetch requests" });
+      }
+    });
+
+    // NEW: Get Adoption Requests Received FOR User's Pets (Pet Owner View)
+    app.get("/owner-requests", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) return res.status(400).send({ message: "Owner email is required" });
+
+        // Matches requests where pet's owner email is logged-in email
+        const query = { ownerEmail: email };
+        const requests = await requestsCollection.find(query).sort({ createdAt: -1 }).toArray();
+        res.send(requests);
+      } catch (error) {
+        console.error("Error in GET /owner-requests:", error);
+        res.status(500).send({ message: "Failed to fetch owner adoption requests" });
+      }
+    });
+
+    // NEW: Update Adoption Request Status (Approve / Reject)
+    app.patch("/adoption-requests/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        if (!status) {
+          return res.status(400).send({ message: "Status field is required" });
+        }
+
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            status: status,
+            updatedAt: new Date(),
+          },
+        };
+
+        const result = await requestsCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (error) {
+        console.error("Error in PATCH /adoption-requests/:id:", error);
+        res.status(500).send({ message: "Failed to update request status" });
       }
     });
 
